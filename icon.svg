@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Logo de Gestión</title>
+  <desc id="desc">Logotipo inspirado en el símbolo original, adaptado para una aplicación de gestión.</desc>
+
+  <!-- Fondo transparente -->
+
+  <!-- Asa / parte superior del carrito -->
+  <path d="M178 126 C186 77 205 49 256 49 C307 49 326 77 334 126"
+        fill="none" stroke="#FF0808" stroke-width="25" stroke-linecap="round"/>
+
+  <!-- Cuerpo superior rojo -->
+  <path d="M154 126 L356 126 C372 126 385 137 389 153 L398 184
+           L129 184 L143 140 C146 131 149 126 154 126Z"
+        fill="#FF0808"/>
+
+  <!-- Símbolo principal azul, inspirado en la C -->
+  <path d="M392 178
+           C351 151 309 136 258 136
+           C161 136 91 192 91 271
+           C91 350 161 406 258 406
+           C311 406 355 391 397 365
+           L365 329
+           C335 346 301 354 266 354
+           C211 354 165 323 165 271
+           C165 219 211 188 266 188
+           C303 188 335 196 365 213
+           Z"
+        fill="#0750B8"/>
+
+  <!-- Estrella central -->
+  <path d="M260 211 L273 246 L310 247 L280 269
+           L291 305 L260 284 L229 305 L240 269
+           L210 247 L247 246 Z"
+        fill="#FF0808"/>
+
+  <!-- Líneas dinámicas de la referencia -->
+  <path d="M79 228 L24 237" stroke="#FF0808" stroke-width="14" stroke-linecap="round"/>
+  <path d="M72 264 L12 272" stroke="#FF0808" stroke-width="14" stroke-linecap="round"/>
+  <path d="M78 300 L39 307" stroke="#FF0808" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- Elemento de gestión: pequeño panel/clipboard integrado -->
+  <g transform="translate(326 312)">
+    <rect x="0" y="0" width="112" height="130" rx="16" fill="#FFFFFF"
+          stroke="#0750B8" stroke-width="9"/>
+    <rect x="29" y="-12" width="54" height="29" rx="10" fill="#0750B8"/>
+
+    <!-- Indicadores de gestión -->
+    <rect x="20" y="38" width="12" height="45" rx="6" fill="#FF0808"/>
+    <rect x="42" y="52" width="12" height="31" rx="6" fill="#FF0808"/>
+    <rect x="64" y="28" width="12" height="55" rx="6" fill="#FF0808"/>
+
+    <!-- Línea de control -->
+    <path d="M19 101 H91" stroke="#0750B8" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>
