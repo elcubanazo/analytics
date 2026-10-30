@@ -23,8 +23,10 @@ const state = {
   pedidosNuevos: [],
   pedidosSeguimiento: [],
   usuarios: [],
-  usuariosPage: 1,
   usuariosPageSize: 50,
+  usuariosCursor: null,
+  usuariosHasMore: false,
+  usuariosLoading: false,
   usuariosQuery: '',
   clientes: [],
   clientesQuery: '',
@@ -2373,20 +2375,25 @@ async function guardarEdicionComprasPedido(){
   }catch(e){ showToast('Error guardando cambios: ' + e.message, true); }
 }
 
-async function loadUsuarios(){
+async function loadUsuarios({ append = false } = {}){
+  if (state.usuariosLoading || (append && !state.usuariosHasMore)) return;
+  state.usuariosLoading = true;
+  const loadMoreBtn = document.getElementById('usr-load-more');
+  if (loadMoreBtn) loadMoreBtn.disabled = true;
   try{
-    const data = await apiFetch('/obtener-estadisticas');
-    const usuarios = Array.isArray(data) ? data : [];
-    state.usuarios = usuarios
-      .filter(u => u && typeof u === 'object')
-      .sort((a, b) => {
-        const da = new Date(a.fecha_hora_entrada || 0).getTime();
-        const db = new Date(b.fecha_hora_entrada || 0).getTime();
-        return db - da;
-      });
-    state.usuariosPage = 1;
+    const params = new URLSearchParams({ limit: String(state.usuariosPageSize * 2) });
+    if (append && state.usuariosCursor) params.set('before', state.usuariosCursor);
+    const data = await apiFetch(`/api/estadisticas/pagina?${params.toString()}`);
+    const page = Array.isArray(data.items) ? data.items : [];
+    state.usuarios = append ? [...state.usuarios, ...page] : page;
+    state.usuariosCursor = data.nextCursor || null;
+    state.usuariosHasMore = Boolean(data.hasMore);
     renderUsuarios();
   }catch(e){ showToast('Error cargando estadísticas: ' + e.message, true); }
+  finally{
+    state.usuariosLoading = false;
+    if (loadMoreBtn) loadMoreBtn.disabled = !state.usuariosHasMore;
+  }
 }
 
 function getFilteredUsuarios(){
@@ -2422,8 +2429,7 @@ function renderUsuarios(){
 
   const filtered = getFilteredUsuarios();
   const total = filtered.length;
-  const visibleCount = Math.min(state.usuariosPage * state.usuariosPageSize, total);
-  const list = filtered.slice(0, visibleCount);
+  const list = filtered;
 
   tbody.innerHTML = '';
 
@@ -2443,31 +2449,29 @@ function renderUsuarios(){
   const recurrentes = filtered.filter(u => String(u.tipo_usuario || '').toLowerCase() === 'recurrente').length;
   const unicos = filtered.filter(u => String(u.tipo_usuario || '').toLowerCase() !== 'recurrente').length;
 
-  if (summary) summary.textContent = total ? `Mostrando ${list.length} de ${total} registros.` : 'Sin resultados para esta búsqueda.';
+  if (summary) summary.textContent = total
+    ? `${total} registros cargados${state.usuariosHasMore ? '; hay más disponibles.' : '; histórico completo.'}`
+    : 'Sin resultados entre los registros cargados.';
   if (totalEl) totalEl.textContent = String(total);
   if (recurrentEl) recurrentEl.textContent = String(recurrentes);
   if (uniqueEl) uniqueEl.textContent = String(unicos);
   if (empty) empty.hidden = list.length !== 0 || total !== 0;
 
   if (loadMoreBtn) {
-    const hasMore = visibleCount < total;
-    loadMoreBtn.hidden = !hasMore;
-    loadMoreBtn.disabled = !hasMore;
-    loadMoreBtn.textContent = hasMore ? 'Cargar más' : 'No hay más registros';
+    loadMoreBtn.hidden = !state.usuariosHasMore;
+    loadMoreBtn.disabled = state.usuariosLoading || !state.usuariosHasMore;
+    loadMoreBtn.textContent = state.usuariosLoading ? 'Cargando...' : 'Cargar más';
   }
 }
 
-document.getElementById('usr-refresh').addEventListener('click', loadUsuarios);
-document.getElementById('usr-load-more')?.addEventListener('click', () => {
-  const filtered = getFilteredUsuarios();
-  if (state.usuariosPage * state.usuariosPageSize < filtered.length) {
-    state.usuariosPage += 1;
-    renderUsuarios();
-  }
+document.getElementById('usr-refresh').addEventListener('click', () => {
+  state.usuariosCursor = null;
+  state.usuariosHasMore = false;
+  loadUsuarios();
 });
+document.getElementById('usr-load-more')?.addEventListener('click', () => loadUsuarios({ append: true }));
 document.getElementById('usr-search')?.addEventListener('input', (event) => {
   state.usuariosQuery = event.target.value;
-  state.usuariosPage = 1;
   renderUsuarios();
 });
 
@@ -3508,9 +3512,13 @@ function nodeChainVertical(datos, max, contW){
 
 function renderHorasConexionChart(usuarios){
   const horas = Array.from({ length: 24 }, (_, h) => ({ hora: h, total: 0 }));
-  for (let i = 0; i < usuarios.length; i++) {
-    const h = horaDeEntrada(usuarios[i]);
-    if (h != null) horas[h].total++;
+  if (Array.isArray(usuarios) && usuarios.length > 0 && typeof usuarios[0] === 'number') {
+    usuarios.forEach((total, hora) => { if (hora < 24) horas[hora].total = Number(total) || 0; });
+  } else if (Array.isArray(usuarios)) {
+    for (let i = 0; i < usuarios.length; i++) {
+      const h = horaDeEntrada(usuarios[i]);
+      if (h != null) horas[h].total++;
+    }
   }
   const hayDatos = horas.some(h => h.total > 0);
   const mejorHora = hayDatos ? horas.reduce((a, b) => (b.total > a.total ? b : a)) : null;
@@ -3611,12 +3619,15 @@ async function loadResumen(){
     const [nuevosData, asignadosData, estadisticasData, productosData] = await Promise.all([
       apiFetch('/api/pedidos'),
       apiFetch('/api/pedidos-asignados').catch(() => ({ pedidosAsignados: [] })),
-      apiFetch('/obtener-estadisticas').catch(() => []),
+      apiFetch('/api/stats/summary').catch(() => ({ summary: {} })),
       apiFetch('/api/products').catch(() => ({ products: [] }))
     ]);
     const nuevos = nuevosData.pedidos || [];
     const asignados = asignadosData.pedidosAsignados || [];
-    const usuarios = Array.isArray(estadisticasData) ? estadisticasData : [];
+    const userSummary = estadisticasData.summary || {};
+    const usuariosTotal = Number(userSummary.total) || 0;
+    const recurrentes = Number(userSummary.recurrentes) || 0;
+    const origenesOrdenadosFull = Object.entries(userSummary.origins || {}).sort((a, b) => b[1] - a[1]);
     if (Array.isArray(productosData.products)) state.productos = productosData.products;
     const asignadosIds = new Set(asignados.map(p => getOriginalPedidoId(p)));
     const nuevosSinAsignar = nuevos.filter(p => !asignadosIds.has(getOriginalPedidoId(p)));
@@ -3636,11 +3647,7 @@ async function loadResumen(){
     const ventasAyer = pedidosUnicos.filter(p => fechaAyer(getPedidoFecha(p))).reduce((acc, p) => acc + Number(p.precio_compra_total || 0), 0);
     const ventasMesAnterior = pedidosUnicos.filter(p => esDelMesAnterior(getPedidoFecha(p))).reduce((acc, p) => acc + Number(p.precio_compra_total || 0), 0);
     const productosVendidosMes = sumaCompras(delMes);
-    const recurrentes = usuarios.filter(u => u.tipo_usuario === 'Recurrente').length;
     const seguimientoAbierto = asignados.filter(p => estadoPedidoKey(p) !== 'completado').length;
-    const allDurations = usuarios.map(u => parseSessionDuration(u));
-    const validDurations = allDurations.filter(v => v > 0);
-    const promedioSegundos = validDurations.length ? validDurations.reduce((a, b) => a + b, 0) / validDurations.length : 0;
     const seguimientoNoPagado = asignados.filter(p => !toBoolean(p.pagado)).length;
     const crecimientoPorcentaje = ventasMesAnterior > 0
       ? ((ventasMes - ventasMesAnterior) / ventasMesAnterior) * 100
@@ -3665,8 +3672,8 @@ async function loadResumen(){
     setText('resu-ventas-ayer', '$' + ventasAyer.toFixed(2));
     setText('resu-ventas-hoy', '$' + ventasHoy.toFixed(2));
     setText('resu-productos-mes', productosVendidosMes);
-    setText('resu-usuarios', usuarios.length);
-    setText('resu-usuarios-sub', usuarios.length ? `${recurrentes} recurrentes` : '—');
+    setText('resu-usuarios', usuariosTotal);
+    setText('resu-usuarios-sub', usuariosTotal ? `${recurrentes} recurrentes` : '—');
 
     const recientes = [...pedidosUnicos]
       .sort((a, b) => new Date(getPedidoFecha(b)) - new Date(getPedidoFecha(a)))
@@ -3686,12 +3693,6 @@ async function loadResumen(){
       });
     }
 
-    const origenes = {};
-    usuarios.forEach(u => {
-      const key = u.origen || u.fuente_trafico || 'Desconocido';
-      origenes[key] = (origenes[key] || 0) + 1;
-    });
-    const origenesOrdenadosFull = Object.entries(origenes).sort((a, b) => b[1] - a[1]);
     const listaOrigenes = document.getElementById('resu-origenes');
     if (listaOrigenes){
       const origenesOrdenados = origenesOrdenadosFull.slice(0, 6);
@@ -3699,7 +3700,7 @@ async function loadResumen(){
         <div class="mini-row"><span class="k">${escapeHtml(k)}</span><span class="v">${v}</span></div>`).join('') : `<p class="hint">Sin datos todavía.</p>`;
     }
 
-    registrarNodeChart('resu-flow-chart', () => renderFlowChart(origenesOrdenadosFull, usuarios.length, pedidosUnicos.length, ventasMes));
+    registrarNodeChart('resu-flow-chart', () => renderFlowChart(origenesOrdenadosFull, usuariosTotal, pedidosUnicos.length, ventasMes));
     renderVentasMesChart(delMes);
 
     /* ---------------- Productos más vendidos (del mes) ---------------- */
@@ -3769,7 +3770,7 @@ async function loadResumen(){
     setText('resu-rango-ticket', '$' + ticketPromedio.toFixed(2));
 
     /* ---------------- Horas buenas de entrada ---------------- */
-    renderHorasConexionChart(usuarios);
+    renderHorasConexionChart(userSummary.hourly || []);
   }catch(e){
     showToast('Error cargando el resumen: ' + e.message, true);
   }
